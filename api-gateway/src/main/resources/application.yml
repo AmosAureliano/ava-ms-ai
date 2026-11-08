@@ -1,0 +1,59 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOrigins: ${AVA_FRONTEND_URL:http://localhost:5173}
+                allowedMethods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+                allowedHeaders: Authorization, Content-Type
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+          # só /api/** é roteado: os endpoints /internal/** dos serviços ficam fora do alcance externo
+          routes:
+            - id: usuario-service
+              uri: lb://usuario-service
+              predicates:
+                - Path=/api/auth/**, /api/usuarios/**
+            - id: curso-service
+              uri: lb://curso-service
+              predicates:
+                - Path=/api/cursos/**, /api/aulas/**
+            - id: matricula-service
+              uri: lb://matricula-service
+              predicates:
+                - Path=/api/matriculas/**
+            - id: avaliacao-service
+              uri: lb://avaliacao-service
+              predicates:
+                - Path=/api/atividades/**, /api/entregas/**
+            - id: notificacao-service
+              uri: lb://notificacao-service
+              predicates:
+                - Path=/api/notificacoes/**
+            - id: recomendacao-service
+              uri: lb://recomendacao-service
+              predicates:
+                - Path=/api/recomendacoes/**
+            - id: agente-ia-service
+              uri: lb://agente-ia-service
+              predicates:
+                - Path=/api/tutor/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+
+ava:
+  security:
+    jwt-secret: ${JWT_SECRET}

@@ -1,0 +1,58 @@
+server:
+  port: 8083
+
+spring:
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+      client:
+        config:
+          default:
+            connect-timeout: 2000
+            read-timeout: 5000
+    circuitbreaker:
+      resilience4j:
+        disable-time-limiter: true
+  application:
+    name: matricula-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/db_matriculas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:ava_matriculas}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: none              # o esquema é criado pelos scripts em infra/mysql/init
+    open-in-view: false
+    properties:
+      hibernate:
+        default_batch_fetch_size: 50
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        ignore-exceptions:
+          - feign.FeignException$NotFound
+
+ava:
+  security:
+    jwt-secret: ${JWT_SECRET}
+  events:
+    outbox:
+      enabled: true

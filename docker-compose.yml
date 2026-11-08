@@ -1,0 +1,151 @@
+# Só o portal, o gateway e o painel do Eureka são publicados, e apenas em 127.0.0.1.
+# Microsserviços, MySQL e Kafka ficam na rede interna: o único caminho de fora é o API Gateway.
+
+x-java: &java
+  build:
+    context: .
+    dockerfile: Dockerfile.java
+  restart: on-failure
+  depends_on:
+    mysql: { condition: service_healthy }
+    kafka: { condition: service_healthy }
+    discovery-service: { condition: service_started }
+
+x-env-java: &env-java
+  EUREKA_URL: http://discovery-service:8761/eureka
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+  JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?defina MYSQL_ROOT_PASSWORD no .env}
+      DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      TZ: America/Maceio
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-dados:/var/lib/mysql
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller            # modo KRaft, sem ZooKeeper
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  discovery-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+      args: { SERVICE: discovery-service }
+    ports: ["127.0.0.1:8761:8761"]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+      args: { SERVICE: api-gateway }
+    restart: on-failure
+    environment:
+      EUREKA_URL: http://discovery-service:8761/eureka
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      AVA_FRONTEND_URL: http://localhost:5173
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on: [discovery-service]
+
+  usuario-service:
+    <<: *java
+    build: { context: ., dockerfile: Dockerfile.java, args: { SERVICE: usuario-service } }
+    environment:
+      <<: *env-java
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_usuarios?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+  curso-service:
+    <<: *java
+    build: { context: ., dockerfile: Dockerfile.java, args: { SERVICE: curso-service } }
+    environment:
+      <<: *env-java
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_cursos?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+  matricula-service:
+    <<: *java
+    build: { context: ., dockerfile: Dockerfile.java, args: { SERVICE: matricula-service } }
+    environment:
+      <<: *env-java
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_matriculas?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+  avaliacao-service:
+    <<: *java
+    build: { context: ., dockerfile: Dockerfile.java, args: { SERVICE: avaliacao-service } }
+    environment:
+      <<: *env-java
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_avaliacoes?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+  notificacao-service:
+    <<: *java
+    build: { context: ., dockerfile: Dockerfile.java, args: { SERVICE: notificacao-service } }
+    environment:
+      <<: *env-java
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db_notificacoes?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+  recomendacao-service:
+    build: { context: ., dockerfile: recomendacao-service/Dockerfile }
+    restart: on-failure
+    environment:
+      EUREKA_URL: http://discovery-service:8761/eureka
+      INSTANCE_HOST: recomendacao-service
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DB_HOST: mysql
+      DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+    depends_on:
+      mysql: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      discovery-service: { condition: service_started }
+
+  agente-ia-service:
+    build: { context: ., dockerfile: agente-ia-service/Dockerfile }
+    restart: on-failure
+    environment:
+      EUREKA_URL: http://discovery-service:8761/eureka
+      INSTANCE_HOST: agente-ia-service
+      DB_HOST: mysql
+      DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+    depends_on:
+      mysql: { condition: service_healthy }
+      discovery-service: { condition: service_started }
+
+  ava-web:
+    build:
+      context: ./ava-web
+      args: { VITE_API_URL: "http://localhost:8080" }
+    ports: ["127.0.0.1:5173:8080"]
+    depends_on: [api-gateway]
+
+volumes:
+  mysql-dados:

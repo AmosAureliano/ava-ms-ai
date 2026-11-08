@@ -1,0 +1,3 @@
+-r requirements.txt
+-e ../commons/ava-commons-py
+pytest==8.3.3
